@@ -30,10 +30,7 @@ public sealed class ApiIntegrationFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _database.StartAsync();
-        var options = new DbContextOptionsBuilder<CatalogInventoryDbContext>().UseNpgsql(ConnectionString).Options;
-        await using (var db = new CatalogInventoryDbContext(options))
-            await db.Database.EnsureCreatedAsync();
-
+        // The API migrates the schema on startup in Development, which is the factory's default environment.
         var settings = new Dictionary<string, string?>
         {
             ["ConnectionStrings__execution"] = ConnectionString,

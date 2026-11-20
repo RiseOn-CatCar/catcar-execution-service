@@ -50,10 +50,15 @@ builder.Host.UseWolverine(options =>
 });
 
 var app = builder.Build();
-if (args.Contains("--migrate", StringComparer.Ordinal))
+var migrationOnly = args.Contains("--migrate", StringComparer.Ordinal);
+if (app.Environment.IsDevelopment() || migrationOnly)
 {
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<CatalogInventoryDbContext>().Database.MigrateAsync().ConfigureAwait(false);
+}
+
+if (migrationOnly)
+{
     return;
 }
 

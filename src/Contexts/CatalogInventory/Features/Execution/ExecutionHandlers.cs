@@ -5,8 +5,10 @@ using CatCar.Contexts.CatalogInventory.Domain.InventoryItems;
 using CatCar.Contexts.CatalogInventory.Domain.InventoryReservations;
 using CatCar.Contexts.CatalogInventory.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Wolverine.Attributes;
 using Wolverine.EntityFrameworkCore;
 
+[WolverineHandler]
 public static class ExecutionHandlers
 {
     public static async Task Handle(ReserveParts command, CatalogInventoryDbContext db,
