@@ -2,15 +2,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:11.0.100 AS build
 WORKDIR /src
 
-# Restore the API and its project references before copying source files.
 COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
-COPY src/SharedKernel/CatCar.SharedKernel.csproj src/SharedKernel/
-COPY src/Contexts/CatalogInventory/CatCar.Contexts.CatalogInventory.csproj src/Contexts/CatalogInventory/
-COPY src/Host/CatCar.ServiceDefaults/CatCar.ServiceDefaults.csproj src/Host/CatCar.ServiceDefaults/
-COPY src/Api/CatCar.Execution.Api.csproj src/Api/
-RUN dotnet restore src/Api/CatCar.Execution.Api.csproj
 COPY src/ src/
-RUN dotnet publish src/Api/CatCar.Execution.Api.csproj -c Release --no-restore -o /app
+RUN dotnet publish src/Api/CatCar.Execution.Api.csproj -c Release -o /app
 
 # Stage 2: Runtime
 # Azure Linux variant: the default Ubuntu (resolute) image ships /usr/bin/pebble,
