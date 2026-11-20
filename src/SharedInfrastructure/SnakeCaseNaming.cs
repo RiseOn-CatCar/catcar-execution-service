@@ -1,0 +1,80 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
+
+namespace CatCar.Persistence;
+
+internal static class SnakeCaseNaming
+{
+    internal static void Apply(ModelBuilder modelBuilder)
+    {
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            var tableName = entityType.GetTableName();
+            if (tableName is not null)
+            {
+                entityType.SetTableName(ToSnakeCase(tableName));
+            }
+
+            ApplyProperties(entityType);
+            ApplyForeignKeys(entityType);
+        }
+    }
+
+    private static void ApplyProperties(IMutableEntityType entityType)
+    {
+        foreach (var property in entityType.GetProperties())
+        {
+            if (entityType.IsOwned() && entityType.FindOwnership() is { } ownership && ownership.Properties.Contains(property))
+            {
+                continue;
+            }
+
+            var columnName = property.GetColumnName();
+            property.SetColumnName(ToSnakeCase(columnName ?? property.Name));
+        }
+    }
+
+    private static void ApplyForeignKeys(IMutableEntityType entityType)
+    {
+        foreach (var foreignKey in entityType.GetForeignKeys())
+        {
+            if (foreignKey.IsOwnership)
+            {
+                continue;
+            }
+
+            foreach (var property in foreignKey.Properties)
+            {
+                var columnName = property.GetColumnName();
+                property.SetColumnName(ToSnakeCase(columnName ?? property.Name));
+            }
+        }
+    }
+
+    private static string ToSnakeCase(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+        {
+            return input;
+        }
+
+        var result = new System.Text.StringBuilder();
+        result.Append(char.ToLowerInvariant(input[0]));
+
+        for (var i = 1; i < input.Length; i++)
+        {
+            var character = input[i];
+            if (char.IsUpper(character))
+            {
+                result.Append('_');
+                result.Append(char.ToLowerInvariant(character));
+            }
+            else
+            {
+                result.Append(character);
+            }
+        }
+
+        return result.ToString();
+    }
+}

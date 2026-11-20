@@ -1,0 +1,18 @@
+<Project>
+  <!-- Import parent Directory.Build.props to inherit TargetFramework, Nullable, etc. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <AnalysisMode>All</AnalysisMode>
+    <NoWarn>$(NoWarn);CA1707;CA2007</NoWarn>
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <CoverletOutput>../../CoverageResults/</CoverletOutput>
+  </PropertyGroup>
+
+  <!-- Transitive vulnerability pins (GHSA-q939-rpr3-3284, high, via Testcontainers) -->
+  <ItemGroup>
+    <PackageReference Include="SSH.NET" />
+  </ItemGroup>
+</Project>
