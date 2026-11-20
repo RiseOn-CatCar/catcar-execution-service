@@ -2,6 +2,7 @@ namespace CatCar.Contexts.CatalogInventory.Features.Execution;
 
 using CatCar.Contexts.CatalogInventory.Domain.CatalogedServices;
 using CatCar.Contexts.CatalogInventory.Domain.InventoryItems;
+using CatCar.Contexts.CatalogInventory.Domain.InventoryReservations;
 using CatCar.Contexts.CatalogInventory.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
