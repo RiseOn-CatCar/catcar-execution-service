@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '11.0.100'
+  SOLUTION: CatCar.Execution.slnx
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - run: dotnet restore "$SOLUTION"
+      - run: dotnet format whitespace "$SOLUTION" --verify-no-changes --no-restore
+      - run: dotnet build "$SOLUTION" --no-restore -c Release
+      - name: Test with OpenCover coverage
+        run: dotnet test "$SOLUTION" --no-build -c Release --collect:"XPlat Code Coverage" --results-directory TestResults/Coverage --logger "trx" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+      - name: Enforce service line coverage
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          lines = {}
+          reports = glob.glob('TestResults/Coverage/**/coverage.opencover.xml', recursive=True)
+          if not reports:
+              raise SystemExit('No OpenCover reports found')
+          root = os.path.realpath('src') + os.sep
+          for report in reports:
+              for module in ET.parse(report).iter('Module'):
+                  files = {f.get('uid'): os.path.realpath(f.get('fullPath', '')) for f in module.findall('./Files/File')}
+                  for method in module.findall('.//Method'):
+                      file_ref = method.find('FileRef')
+                      for point in method.findall('./SequencePoints/SequencePoint'):
+                          path = files.get(point.get('fileid') or (file_ref.get('uid') if file_ref is not None else None), '')
+                          relative = os.path.relpath(path, root) if path.startswith(root) else ''
+                          parts = relative.replace('\\', '/').split('/')
+                          if not relative or 'Migrations' in parts or 'obj' in parts or parts[-1] == 'Program.cs' or parts[-1].endswith(('.g.cs', '.generated.cs', '.Designer.cs')):
+                              continue
+                          key = (path, point.get('sl'))
+                          lines[key] = lines.get(key, False) or int(point.get('vc', '0')) > 0
+          if not lines:
+              raise SystemExit('No service source lines found in coverage reports')
+          covered = sum(lines.values())
+          percentage = 100 * covered / len(lines)
+          print(f'Service line coverage: {covered}/{len(lines)} ({percentage:.2f}%)')
+          if percentage < 80:
+              raise SystemExit('Service line coverage is below 80%')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: TestResults/Coverage
+
+  sonar:
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.SONAR_TOKEN != ''
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        if: env.SONAR_TOKEN != ''
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - uses: actions/setup-java@v4
+        if: env.SONAR_TOKEN != ''
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Analyze with SonarCloud
+        if: env.SONAR_TOKEN != ''
+        run: |
+          dotnet tool install --global dotnet-sonarscanner --version 12.1.0
+          "$HOME/.dotnet/tools/dotnet-sonarscanner" begin /k:"riseon_catcar-execution-service" /o:"riseon" /d:sonar.token="$SONAR_TOKEN" /d:sonar.qualitygate.wait=true /d:sonar.cs.opencover.reportsPaths="TestResults/Coverage/**/coverage.opencover.xml"
+          dotnet build "$SOLUTION" -c Release
+          dotnet test "$SOLUTION" --no-build -c Release --collect:"XPlat Code Coverage" --results-directory TestResults/Coverage -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+          "$HOME/.dotnet/tools/dotnet-sonarscanner" end /d:sonar.token="$SONAR_TOKEN"
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Install Opengrep
+        run: |
+          mkdir -p "$RUNNER_TEMP/opengrep"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location https://github.com/opengrep/opengrep/releases/download/v1.28.0/opengrep_manylinux_x86 -o "$RUNNER_TEMP/opengrep/opengrep"
+          echo "85af2f34e5175995acbc431e1ca733e34062aad9640ad4308422abe1968b84cf  $RUNNER_TEMP/opengrep/opengrep" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/opengrep/opengrep"
+          echo "$RUNNER_TEMP/opengrep" >> "$GITHUB_PATH"
+      - name: Opengrep SAST
+        run: opengrep scan --config p/csharp --config p/security-audit --error
+      - run: dotnet restore "$SOLUTION"
+      - name: NuGet vulnerability scan
+        run: |
+          dotnet package list --project "$SOLUTION" --vulnerable --include-transitive --format json --output-version 1 --no-restore > nuget-vulnerabilities.json
+          jq -e '[.projects[]?.frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "Critical" or .severity == "High")] | length == 0' nuget-vulnerabilities.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nuget-vulnerabilities
+          path: nuget-vulnerabilities.json
+      - run: docker build -t catcar-execution-service:ci .
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: catcar-execution-service:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+
+  deploy-kind:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: [build-test, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: catcar-ci
+      - run: docker build -t catcar-execution-service:ci .
+      - run: kind load docker-image catcar-execution-service:ci --name catcar-ci
+      - run: kubectl apply -k k8s/overlays/ci
+      - name: Wait for dependencies and EF migration
+        run: |
+          kubectl rollout status deployment/postgres --timeout=180s
+          kubectl rollout status deployment/rabbitmq --timeout=180s
+          kubectl wait --for=condition=complete job/execution-service-migrate --timeout=300s
+      - run: kubectl rollout status deployment/execution-service --timeout=300s
+      - name: Smoke health and public endpoint
+        run: |
+          kubectl port-forward service/execution-service 18080:8080 > /tmp/execution-port-forward.log 2>&1 &
+          forward_pid=$!
+          trap 'kill "$forward_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/health/ready; then break; fi
+            if [ "$attempt" -eq 30 ]; then cat /tmp/execution-port-forward.log; exit 1; fi
+            sleep 1
+          done
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/api/v1/catalog-inventory/services)
+          test "$status" = 401
