@@ -10,3 +10,5 @@ to apply database migrations before starting the API. The public administrative
 routes are under `/api/v1/catalog-inventory` and `/api/v1/execution`. Internal
 catalog lookups under `/internal/v1/catalog` must remain accessible only within
 the cluster. Health probes are `/health/live` and `/health/ready`.
+
+CI validates builds, tests, security scans, and deployment to a local kind cluster.
