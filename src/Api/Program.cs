@@ -70,6 +70,6 @@ app.MapExecutionEndpoints();
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Contains("ready") });
 app.MapDefaultEndpoints();
-app.Run();
+await app.RunAsync().ConfigureAwait(false);
 
 public partial class Program;
